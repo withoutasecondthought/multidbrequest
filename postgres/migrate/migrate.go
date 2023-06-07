@@ -2,57 +2,23 @@ package main
 
 import (
 	"fmt"
-	"github.com/ilyakaznacheev/cleanenv"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
+	"log"
+	"multidbrequest/postgres/config"
 )
 
 //read env variables field TEST
 
-type Config struct {
-	Postgres `yaml:"postgres" env:"TEST"`
-}
-
-type Postgres struct {
-	Host     string   `yaml:"host"`
-	User     string   `yaml:"user"`
-	Password string   `yaml:"password"`
-	Ports    []string `yaml:"ports"`
-	Name     string   `yaml:"name"`
-}
-
-type User struct {
-	Id   int    `db:"id"`
-	Name string `db:"name"`
-	Age  int    `db:"age"`
-}
-
-type Place struct {
-	Id      int    `db:"id"`
-	UserId  int    `db:"user_id"`
-	Name    string `db:"name"`
-	Address string `db:"address"`
-}
-
-type Money struct {
-	Id     int    `db:"id"`
-	UserId int    `db:"user_id"`
-	Amount string `db:"amount"`
-	Credit string `db:"credit"`
-}
-
 func main() {
-	config := new(Config)
-
-	err := cleanenv.ReadConfig("config.yml", config)
+	cfg, err := config.InitConfig()
 	if err != nil {
-		logrus.Fatalf("Configuration cannot be read: %v", err)
+		log.Fatalf("Config initialization failed: %v", err)
 	}
+	logrus.Info(cfg.Postgres.Ports)
 
-	logrus.Info(config.Postgres.Ports)
-
-	pool, err := multiDBConnect(config)
+	pool, err := multiDBConnect(cfg)
 	if err != nil {
 		logrus.Fatalf("DB connection failed: %v", err)
 	}
@@ -66,18 +32,18 @@ func main() {
 		}
 	}
 
-	var users [][]User
+	var users [][]config.User
 
-	users = append(users, []User{
+	users = append(users, []config.User{
 		{Id: 3, Name: "Mark", Age: 10},
 		{Id: 6, Name: "Bane", Age: 20},
 		{Id: 9, Name: "Bob", Age: 50}})
-	users = append(users, []User{
+	users = append(users, []config.User{
 		{Id: 2, Name: "John", Age: 30},
 		{Id: 4, Name: "Jane", Age: 20},
 		{Id: 6, Name: "Mary", Age: 36},
 		{Id: 8, Name: "Oleg", Age: 50}})
-	users = append(users, []User{
+	users = append(users, []config.User{
 		{Id: 0, Name: "Kate", Age: 22},
 		{Id: 101, Name: "Egor", Age: 39},
 		{Id: 5, Name: "Anatoliy", Age: 21},
@@ -102,7 +68,7 @@ func main() {
 
 	placesTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, user_id INT, name TEXT NOT NULL, address TEXT NOT NULL)", "places")
 
-	places := []Place{{
+	places := []config.Place{{
 		UserId:  2,
 		Name:    "Argentina",
 		Address: "Some address",
@@ -142,7 +108,7 @@ func main() {
 
 	moneyTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, user_id INT, amount TEXT NOT NULL, credit TEXT NOT NULL)", "money")
 
-	moneys := []Money{{
+	moneys := []config.Money{{
 		UserId: 2,
 		Amount: "100$",
 		Credit: "less than you can imagine",
@@ -181,7 +147,7 @@ func main() {
 	}
 }
 
-func multiDBConnect(cfg *Config) ([]*sqlx.DB, error) {
+func multiDBConnect(cfg *config.Config) ([]*sqlx.DB, error) {
 	pool := make([]*sqlx.DB, len(cfg.Postgres.Ports))
 
 	for i, port := range cfg.Postgres.Ports {
