@@ -2,6 +2,7 @@ package multiconn
 
 import (
 	"fmt"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
 	"multidbrequest/postgres/config"
 )

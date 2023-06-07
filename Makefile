@@ -1,8 +1,8 @@
-models:
+run_model:
 	go run model/*.go
 
-postgres:
+run_postgres:
 	go run postgres/*.go
 
-mongo:
+run_mongo:
 	go run mongo/*.go
