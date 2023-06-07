@@ -18,7 +18,7 @@ func main() {
 	}
 	logrus.Info(cfg.Postgres.Ports)
 
-	pool, err := multiconn.MultiPostgresDBConnect(cfg)
+	pool, err := multiconn.Postgres(cfg)
 	if err != nil {
 		logrus.Fatalf("DB connection failed: %v", err)
 	}

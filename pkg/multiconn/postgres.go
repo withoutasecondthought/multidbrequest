@@ -6,7 +6,7 @@ import (
 	"multidbrequest/postgres/config"
 )
 
-func MultiPostgresDBConnect(cfg *config.Config) ([]*sqlx.DB, error) {
+func Postgres(cfg *config.Config) ([]*sqlx.DB, error) {
 	pool := make([]*sqlx.DB, len(cfg.Postgres.Ports))
 
 	for i, port := range cfg.Postgres.Ports {
