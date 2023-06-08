@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/jmoiron/sqlx"
+	"github.com/sirupsen/logrus"
 	"log"
 	"multidbrequest/pkg/multiconn"
 	"multidbrequest/postgres/config"
@@ -46,7 +47,7 @@ func main() {
 		log.Fatalf("Database %s not found", _users_and_place)
 	}
 
-	users, err := getAllUsers(pool)
+	users, err := getAllUsersWithAllFields(pool)
 	if err != nil {
 		log.Fatalf("Get all users failed: %v", err)
 	}
@@ -83,6 +84,92 @@ func getAllUsers(pool map[string]*sqlx.DB) ([]FullUser, error) {
 
 	close(ch)
 	return users, nil
+}
+
+func getAllUsersWithAllFields(pool map[string]*sqlx.DB) ([]FullUser, error) {
+	usersCh := make(chan []FullUser, len(pool))
+	placesCh := make(chan []config.Place, len(pool))
+	moneyCh := make(chan []config.Money, len(pool))
+	var wg sync.WaitGroup
+	var err error
+	wg.Add(len(pool) + 1 + 1)
+	//place
+	go func() {
+		var res []config.Place
+		err := pool[_users_and_place].Select(&res, "SELECT * FROM places")
+		if err != nil {
+			logrus.Warnf("Select failed: %v", err)
+		} else if res != nil {
+			placesCh <- res
+		}
+		wg.Done()
+	}()
+	if err != nil {
+		return nil, err
+	}
+	//money
+	go func() {
+		var res []config.Money
+		err := pool[_users_and_money].Select(&res, "SELECT * FROM money")
+		if err != nil {
+			logrus.Warnf("Select failed: %v", err)
+		} else if res != nil {
+			moneyCh <- res
+		}
+		wg.Done()
+	}()
+	if err != nil {
+		return nil, err
+	}
+	//users
+	for _, db := range pool {
+		go func(conn *sqlx.DB) {
+			var res []FullUser
+			err = conn.Select(&res, "SELECT * FROM users")
+			if err != nil {
+				return
+			} else if res != nil {
+				usersCh <- res
+			}
+			wg.Done()
+		}(db)
+		if err != nil {
+			return nil, err
+		}
+	}
+	wg.Wait()
+
+	close(usersCh)
+	close(placesCh)
+	close(moneyCh)
+
+	users := FromChanelOfSlicesToSLice(usersCh)
+	places := FromChanelOfSlicesToSLice(placesCh)
+	moneys := FromChanelOfSlicesToSLice(moneyCh)
+
+	wg.Add(len(users) * 2)
+	for i, user := range users {
+		go func(i int, u FullUser) {
+			for _, place := range places {
+				if u.User.Id == place.UserId {
+					users[i].Place = place
+				}
+			}
+			wg.Done()
+		}(i, user)
+
+		go func(i int, u FullUser) {
+			for _, money := range moneys {
+				if u.User.Id == money.UserId {
+					users[i].Money = money
+				}
+			}
+			wg.Done()
+		}(i, user)
+	}
+	wg.Wait()
+
+	return users, err
 }
 
 func FromChanelOfSlicesToSLice[T any](ch chan []T) []T {
