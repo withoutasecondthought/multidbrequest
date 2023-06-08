@@ -11,6 +11,12 @@ import (
 
 //read env variables field TEST
 
+const (
+	_users_places = "users_places"
+	_users        = "users"
+	_users_money  = "users_money"
+)
+
 func main() {
 	cfg, err := config.InitConfig()
 	if err != nil {
@@ -49,7 +55,8 @@ func main() {
 		{Id: 5, Name: "Anatoliy", Age: 21},
 		{Id: 7, Name: "Alena", Age: 54}})
 
-	for id, db := range pool {
+	id := 0
+	for _, db := range pool {
 		tx := db.MustBegin()
 
 		for _, user := range users[id] {
@@ -64,6 +71,7 @@ func main() {
 		if err := tx.Commit(); err != nil {
 			logrus.Fatalf("commit failed: %v\n", err)
 		}
+		id++
 	}
 
 	placesTable := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, user_id INT, name TEXT NOT NULL, address TEXT NOT NULL)", "places")
@@ -82,7 +90,7 @@ func main() {
 		Address: "Some GOod address",
 	}}
 
-	placesTx := pool[0].MustBegin()
+	placesTx := pool[_users_places].MustBegin()
 	_, err = placesTx.Exec(placesTable)
 	if err != nil {
 		if err := placesTx.Rollback(); err != nil {
@@ -122,7 +130,7 @@ func main() {
 		Credit: "world cumshot",
 	}}
 
-	moneysTx := pool[2].MustBegin()
+	moneysTx := pool[_users_money].MustBegin()
 	_, err = moneysTx.Exec(moneyTable)
 	if err != nil {
 		if err := moneysTx.Rollback(); err != nil {

@@ -12,6 +12,7 @@ type Postgres struct {
 	Host     string   `yaml:"host"`
 	User     string   `yaml:"user"`
 	Password string   `yaml:"password"`
+	DBNames  []string `yaml:"db_names"`
 	Ports    []string `yaml:"ports"`
 	Name     string   `yaml:"name"`
 }
