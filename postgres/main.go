@@ -1,12 +1,13 @@
 package main
 
 import (
+	"errors"
 	"github.com/jmoiron/sqlx"
-	"github.com/sirupsen/logrus"
 	"log"
 	"multidbrequest/pkg/multiconn"
 	"multidbrequest/postgres/config"
 	"sync"
+	"time"
 )
 
 const (
@@ -78,74 +79,90 @@ func getAllUsers(pool map[string]*sqlx.DB) ([]FullUser, error) {
 			return nil, err
 		}
 	}
-
+	close(ch)
 	wg.Wait()
 	users := FromChanelOfSlicesToSLice(ch)
 
-	close(ch)
 	return users, nil
 }
 
 func getAllUsersWithAllFields(pool map[string]*sqlx.DB) ([]FullUser, error) {
+	var users []FullUser
+	var moneys []config.Money
+	var places []config.Place
 	usersCh := make(chan []FullUser, len(pool))
 	placesCh := make(chan []config.Place, len(pool))
 	moneyCh := make(chan []config.Money, len(pool))
+	errorCh := make(chan error)
+	wgCh := make(chan struct{})
+
 	var wg sync.WaitGroup
-	var err error
 	wg.Add(len(pool) + 1 + 1)
 	//place
 	go func() {
 		var res []config.Place
 		err := pool[_users_and_place].Select(&res, "SELECT * FROM places")
 		if err != nil {
-			logrus.Warnf("Select failed: %v", err)
+			errorCh <- err
+			return
 		} else if res != nil {
 			placesCh <- res
 		}
 		wg.Done()
 	}()
-	if err != nil {
-		return nil, err
-	}
 	//money
 	go func() {
 		var res []config.Money
 		err := pool[_users_and_money].Select(&res, "SELECT * FROM money")
 		if err != nil {
-			logrus.Warnf("Select failed: %v", err)
+			errorCh <- err
+			return
 		} else if res != nil {
 			moneyCh <- res
 		}
 		wg.Done()
 	}()
-	if err != nil {
-		return nil, err
-	}
 	//users
 	for _, db := range pool {
 		go func(conn *sqlx.DB) {
 			var res []FullUser
-			err = conn.Select(&res, "SELECT * FROM users")
+			err := conn.Select(&res, "SELECT * FROM users")
 			if err != nil {
+				errorCh <- err
 				return
 			} else if res != nil {
 				usersCh <- res
 			}
 			wg.Done()
 		}(db)
-		if err != nil {
+	}
+
+	go func() {
+		wg.Wait()
+		close(wgCh)
+	}()
+
+loop:
+	for {
+		select {
+		case err := <-errorCh:
 			return nil, err
+		case user := <-usersCh:
+			users = append(users, user...)
+		case place := <-placesCh:
+			places = append(places, place...)
+		case money := <-moneyCh:
+			moneys = append(moneys, money...)
+		case <-wgCh:
+			break loop
+		case <-time.After(2 * time.Second):
+			return nil, errors.New("timeout")
 		}
 	}
-	wg.Wait()
 
 	close(usersCh)
 	close(placesCh)
 	close(moneyCh)
-
-	users := FromChanelOfSlicesToSLice(usersCh)
-	places := FromChanelOfSlicesToSLice(placesCh)
-	moneys := FromChanelOfSlicesToSLice(moneyCh)
 
 	wg.Add(len(users) * 2)
 	for i, user := range users {
@@ -169,7 +186,7 @@ func getAllUsersWithAllFields(pool map[string]*sqlx.DB) ([]FullUser, error) {
 	}
 	wg.Wait()
 
-	return users, err
+	return users, nil
 }
 
 func FromChanelOfSlicesToSLice[T any](ch chan []T) []T {
