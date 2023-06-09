@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"github.com/jmoiron/sqlx"
 	"log"
@@ -48,7 +49,10 @@ func main() {
 		log.Fatalf("Database %s not found", _users_and_place)
 	}
 
-	users, err := getAllUsersWithAllFields(pool)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	users, err := getAllUsersWithAllFields(ctx, pool)
 	if err != nil {
 		log.Fatalf("Get all users failed: %v", err)
 	}
@@ -59,34 +63,49 @@ func main() {
 
 }
 
-func getAllUsers(pool map[string]*sqlx.DB) ([]FullUser, error) {
+func getAllUsers(ctx context.Context, pool map[string]*sqlx.DB) ([]FullUser, error) {
+	var users []FullUser
 	ch := make(chan []FullUser, len(pool))
-	var err error
+	errCh := make(chan error)
+	waitCh := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(len(pool))
 	for _, db := range pool {
 		go func(conn *sqlx.DB) {
 			var res []FullUser
-			err = conn.Select(&res, "SELECT * FROM users")
+			err := conn.Select(&res, "SELECT * FROM users")
 			if err != nil {
-				return
+				errCh <- err
 			}
 
 			ch <- res
 			wg.Done()
 		}(db)
-		if err != nil {
+	}
+
+	go func() {
+		wg.Wait()
+		close(waitCh)
+	}()
+
+loop:
+	for {
+		select {
+		case err := <-errCh:
 			return nil, err
+		case user := <-ch:
+			users = append(users, user...)
+		case <-waitCh:
+			break loop
+		case <-ctx.Done():
+			return nil, errors.New("timeout")
 		}
 	}
-	close(ch)
-	wg.Wait()
-	users := FromChanelOfSlicesToSLice(ch)
 
 	return users, nil
 }
 
-func getAllUsersWithAllFields(pool map[string]*sqlx.DB) ([]FullUser, error) {
+func getAllUsersWithAllFields(ctx context.Context, pool map[string]*sqlx.DB) ([]FullUser, error) {
 	var users []FullUser
 	var moneys []config.Money
 	var places []config.Place
@@ -155,7 +174,7 @@ loop:
 			moneys = append(moneys, money...)
 		case <-wgCh:
 			break loop
-		case <-time.After(2 * time.Second):
+		case <-ctx.Done():
 			return nil, errors.New("timeout")
 		}
 	}
@@ -187,15 +206,4 @@ loop:
 	wg.Wait()
 
 	return users, nil
-}
-
-func FromChanelOfSlicesToSLice[T any](ch chan []T) []T {
-	var res []T
-	length := len(ch)
-
-	for length > 0 {
-		res = append(res, <-ch...)
-		length--
-	}
-	return res
 }
